@@ -1,7 +1,7 @@
-# gb10-fan
+# gb10-fan-control
 
-Experimental NVIDIA GB10 / DGX Spark-class fan control, including Lenovo
-ThinkStation PGX, on **Ubuntu/Debian ARM64**. One C executable, `gb10-fan`, provides
+Experimental NVIDIA GB10 / DGX Spark-class fan control, (tested on Lenovo
+ThinkStation PGX), on **Ubuntu/Debian ARM64**. One C executable, `gb10-fan`, provides
 manual commands and a foreground temperature governor; the accompanying
 `nvfancontrol` kernel driver provides the FF-A/EC transport.
 **This is not driverless**: the upstream driver offers only maximum-or-automatic
@@ -19,7 +19,7 @@ does not provide.
 
 Treat this as a comfort and preference tool, not a safety or reliability
 improvement. If your only concern is staying within operating limits, the stock
-behavior already did that and you do not need this software.
+behavior (probably) already did that and you do not need this software.
 
 Built on [841973620's original driver and reverse engineering](https://github.com/Z841973620/dgx-spark-fan-override),
 which made this project possible. See [Transport and attribution](#transport-and-attribution)
@@ -215,6 +215,12 @@ fan stays inside its rating. It is **not** the highest value the EC accepts; use
 `set <rpm>` up to 13500 to deliberately request more, understanding that only
 fan1 can meet it and that EC behaviour for fan0 above 9000 is unobserved.
 
+The driver's sysfs `max` token is different from `gb10-fan max`: writing `max`
+to the `fan` attribute requests a **13500 RPM floor and leaves any cap unchanged**.
+The CLI clears the cap first and requests **9000 RPM**. Neither interface
+guarantees the requested speed or measures actual RPM; a retained cap may
+restrict cooling when using the sysfs token.
+
 `status` reads `fan`, `fan_cap`, and `fan_fault` from the uniquely matching driver
 device. These are **last acknowledged commands, not measured fan RPM or current
 EC readback**. It exits nonzero for unknown/error state, nonzero/unreadable fault,
@@ -232,8 +238,8 @@ RPM actually changes. The default curve uses the hottest valid temperature:
 
 | Temperature on rise | Requested floor RPM |
 | --- | ---: |
-| Below 55 C | 2400 |
-| 55 to below 65 C | 3200 |
+| Below 50 C | 2400 |
+| 50 to below 65 C | 3200 |
 | 65 to below 75 C | 5200 |
 | 75 to below 85 C | 8000 |
 | 85 to below 92 C | 8500 |
@@ -257,7 +263,7 @@ below the first threshold; each following `tempC:rpm` pair adds a band, using
 whole degrees Celsius:
 
 ```sh
-gb10-fan governor --curve 2400,55:3200,65:5200,75:8000,85:8500,92:9000
+gb10-fan governor --curve 2400,50:3200,65:5200,75:8000,85:8500,92:9000
 ```
 
 One to eight pairs are accepted. Temperatures must strictly increase and fall in
