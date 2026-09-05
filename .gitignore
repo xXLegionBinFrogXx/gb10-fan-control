@@ -1,0 +1,13 @@
+# kernel module build artifacts
+*.ko
+*.o
+*.mod
+*.mod.c
+Module.symvers
+modules.order
+.*.cmd
+*~
+*.swp
+.DS_Store
+# userspace and local Debian package build artifacts
+/build/

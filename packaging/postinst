@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+    configure)
+        # Validate every kernel before removing any existing DKMS builds.
+        kernels_found=false
+        for tree in /lib/modules/*; do
+            [ -d "$tree" ] || continue
+            # Only real kernel-version trees (e.g. 6.17.0-1032-nvidia) count;
+            # ignore non-version staging dirs such as /lib/modules/kernel.
+            case "${tree##*/}" in *.*) ;; *) continue ;; esac
+            kernels_found=true
+            if [ ! -f "$tree/build/Makefile" ]; then
+                printf '%s\n' "gb10-fan: matching headers are required at $tree/build." \
+                    "Install headers for every installed kernel, then run: dpkg --configure gb10-fan" >&2
+                exit 1
+            fi
+        done
+        if ! "$kernels_found"; then
+            printf '%s\n' "gb10-fan: no installed kernel trees found under /lib/modules." >&2
+            exit 1
+        fi
+        status=$(dkms status -m nvfancontrol -v 0.2.0)
+        if [ -n "$status" ]; then
+            # Reconfiguration/reinstallation must not reuse an older local build.
+            dkms remove -m nvfancontrol -v 0.2.0 --all
+        fi
+        dkms add -m nvfancontrol -v 0.2.0
+        for tree in /lib/modules/*; do
+            [ -d "$tree" ] || continue
+            case "${tree##*/}" in *.*) ;; *) continue ;; esac
+            dkms install -m nvfancontrol -v 0.2.0 -k "${tree##*/}"
+        done
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+        fi
+        # Deliberately do not load the module, enable, start, or restart a service.
+        ;;
+esac

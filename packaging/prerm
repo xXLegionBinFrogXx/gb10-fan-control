@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+    upgrade)
+        # Fail before stopping the governor or deleting any DKMS builds.
+        kernels_found=false
+        for tree in /lib/modules/*; do
+            [ -d "$tree" ] || continue
+            # Only real kernel-version trees (e.g. 6.17.0-1032-nvidia) count;
+            # ignore non-version staging dirs such as /lib/modules/kernel.
+            # This filter must match postinst, or an upgrade aborts here.
+            case "${tree##*/}" in *.*) ;; *) continue ;; esac
+            kernels_found=true
+            if [ ! -f "$tree/build/Makefile" ]; then
+                printf '%s\n' "gb10-fan: matching headers are required at $tree/build." \
+                    "Install headers for every installed kernel before retrying the upgrade." >&2
+                exit 1
+            fi
+        done
+        if ! "$kernels_found"; then
+            printf '%s\n' "gb10-fan: no installed kernel trees found under /lib/modules." >&2
+            exit 1
+        fi
+        ;;
+    failed-upgrade)
+        # Do not let dpkg bypass a failed preflight or DKMS removal in the old prerm.
+        printf '%s\n' "gb10-fan: the previous prerm failed; fix the reported error and retry the upgrade." >&2
+        exit 1
+        ;;
+esac
+
+case "${1:-}" in
+    remove|upgrade|deconfigure)
+        # Stop the old executable before dpkg replaces or removes its files.
+        # Stopping the floor unit also runs its ExecStop, restoring automatic
+        # control rather than leaving a retained floor behind.
+        if [ -d /run/systemd/system ]; then
+            systemctl stop gb10-fan.service gb10-fan-floor.service
+        fi
+        ;;
+esac
+
+case "${1:-}" in
+    remove|upgrade)
+        # An unpacked, never-configured package may not have its dependencies yet.
+        if command -v dkms >/dev/null 2>&1; then
+            status=$(dkms status -m nvfancontrol -v 0.2.0)
+            if [ -n "$status" ]; then
+                dkms remove -m nvfancontrol -v 0.2.0 --all
+            fi
+        fi
+        ;;
+esac

@@ -1,0 +1,23 @@
+# Temperature-tracking governor. Mutually exclusive with the static floor unit;
+# only one writer may own the controller.
+[Unit]
+Description=GB10 fan governor
+Conflicts=gb10-fan-floor.service nvfancontrol.service gb10-fanctl-governor.service
+After=gb10-fan-floor.service nvfancontrol.service gb10-fanctl-governor.service
+
+[Service]
+Type=simple
+ExecStartPre=/sbin/modprobe nvfancontrol
+ExecStart=/usr/sbin/gb10-fan governor --poll 5 --hysteresis 3
+Restart=no
+TimeoutStopSec=30s
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+UMask=0077
+RuntimeDirectory=gb10-fan
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target

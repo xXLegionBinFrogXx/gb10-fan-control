@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+    purge)
+        # The unit files may already be gone; no running systemd or helper state is needed.
+        for dir in /etc/systemd/system /run/systemd/system; do
+            for link in "$dir"/*.wants/gb10-fan.service \
+                "$dir"/*.requires/gb10-fan.service "$dir"/*.upholds/gb10-fan.service \
+                "$dir"/*.wants/gb10-fan-floor.service \
+                "$dir"/*.requires/gb10-fan-floor.service \
+                "$dir"/*.upholds/gb10-fan-floor.service; do
+                if [ -L "$link" ]; then
+                    rm -- "$link"
+                fi
+            done
+        done
+        ;;
+esac
+
+case "${1:-}" in
+    remove|purge)
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+        fi
+        ;;
+esac

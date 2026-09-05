@@ -1,0 +1,14 @@
+Package: gb10-fan
+Version: 0.2.0
+Section: admin
+Priority: optional
+Architecture: arm64
+Maintainer: gb10-fan maintainers <gb10-fan@localhost>
+Depends: dkms, kmod, @SHLIBS@
+Conflicts: nvfancontrol
+Description: GB10 static fan floor and governor with passive DKMS module
+ Userspace fan control with dynamically loaded NVML and the nvfancontrol
+ kernel module. Provides a static RPM floor unit and a temperature-tracking
+ governor unit, which are mutually exclusive. Installing this package does
+ not load the module or enable or start either unit. Matching headers for
+ every installed kernel are required at configuration and upgrade time.

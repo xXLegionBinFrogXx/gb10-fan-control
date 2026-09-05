@@ -1,0 +1,27 @@
+# Static RPM floor with no governor: one EC exchange at start, one at stop.
+# Firmware handles all escalation above the floor. Mutually exclusive with the
+# governor unit; only one writer may own the controller.
+[Unit]
+Description=GB10 static fan floor
+Conflicts=gb10-fan.service nvfancontrol.service gb10-fanctl-governor.service
+After=gb10-fan.service nvfancontrol.service gb10-fanctl-governor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/sbin/modprobe nvfancontrol
+# A retained cap could restrict cooling; clear it before requesting a floor.
+ExecStartPre=/usr/sbin/gb10-fan cap off
+# Change the RPM with: systemctl edit gb10-fan-floor (see README).
+ExecStart=/usr/sbin/gb10-fan set 2400
+ExecStop=/usr/sbin/gb10-fan auto
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+UMask=0077
+RuntimeDirectory=gb10-fan
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+
+[Install]
+WantedBy=multi-user.target
