@@ -1,325 +1,139 @@
 # gb10-fan-control
 
-Experimental NVIDIA GB10 / DGX Spark-class fan control, (tested on Lenovo
-ThinkStation PGX), on **Ubuntu/Debian ARM64**. One C executable, `gb10-fan`, provides
-manual commands and a foreground temperature governor; the accompanying
-`nvfancontrol` kernel driver provides the FF-A/EC transport.
-**This is not driverless**: the upstream driver offers only maximum-or-automatic
-control, with no way to request a specific RPM.
+Experimental NVIDIA GB10 / DGX Spark-class fan control on **Ubuntu/Debian ARM64**.
+Tested on **Lenovo ThinkStation PGX** and **NVIDIA DGX Spark**.
+
+One C executable, `gb10-fan`, provides manual commands and a foreground
+temperature governor. The `nvfancontrol` kernel driver provides the FF-A/EC
+transport. **This is not driverless:** the upstream driver only offers
+maximum-or-automatic control. There is no way to request a specific RPM without
+this (or equivalent) module.
+
+This is an independent community project, not affiliated with, endorsed by, or
+supported by NVIDIA or Lenovo. Product names identify compatible hardware only.
+
+Built on [841973620's original driver and reverse engineering](https://github.com/Z841973620/dgx-spark-fan-override).
+See [Transport and attribution](#transport-and-attribution).
 
 ## Why this exists
 
-**To reduce high idle temperature.** Stock automatic behavior held the machine
-within its operating limits; this is not a fix for inadequate or unsafe cooling,
-and no defect in the platform's thermal management is claimed or implied. The
-motivation is a preference for lower idle temperatures than the stock curve
-produces, accepting more fan noise and more fan runtime in exchange. Requesting
-a modest RPM floor requires per-RPM control, which the upstream max/auto driver
-does not provide.
+Stock automatic control already held tested machines within operating limits.
+This project does **not** claim a platform defect.
 
-Treat this as a comfort and preference tool, not a safety or reliability
-improvement. If your only concern is staying within operating limits, the stock
-behavior (probably) already did that and you do not need this software.
+The goal is a **lower idle temperature** than the stock curve, in exchange for
+more fan noise and more fan runtime. That needs a modest RPM floor, which the
+upstream max/auto interface cannot request.
 
-Built on [841973620's original driver and reverse engineering](https://github.com/Z841973620/dgx-spark-fan-override),
-which made this project possible. See [Transport and attribution](#transport-and-attribution)
-for provenance and the changes made here.
+Treat this as a comfort tool, not a safety or reliability improvement. If
+staying inside operating limits is enough, you do not need this software.
 
-This is an independent community project, not affiliated with, endorsed by, or
-supported by NVIDIA or Lenovo. Product names are used solely to identify
-compatible hardware.
+## Risks
 
-## Disclaimer
+**Use this at your own risk.** Bad settings, bugs, or mismatched
+hardware/firmware can overheat the machine, wear fans, destabilize the system,
+or damage hardware.
 
-**Use this software at your own risk.** Incorrect settings, software defects, or
-incompatible hardware or firmware may cause overheating, excessive fan wear,
-system instability, hardware damage, or data loss.
+- Acknowledgements are **not** proof of fan motion, requested RPM, adequate
+  cooling, or emergency protection.
+- `status` reports the **last acknowledged command**, never measured speed.
+  This project has **no tachometer readback**.
+- Per-fan ranges quoted here (**fan0 1260–9000**, **fan1 1890–13500**) come from
+  upstream EC capability replies on one class of machine. They are **not**
+  vendor specs, **not** measured here, and **may be wrong** for your SKU or
+  firmware. A request the EC accepts is not evidence the fan can sustain it.
+- Floors are minima. Caps can **restrict** cooling. Choosing any RPM is your
+  decision; use manufacturer data and your own observation, not these defaults.
+- Monitor independently. Reduce or stop workloads if cooling is uncertain.
 
-This is hardware-experimental software, not production thermal management.
-Acknowledgements do not prove fan motion, requested RPM, adequate cooling, or
-emergency protection. Monitor the machine independently and reduce/stop workloads
-if cooling is uncertain. Neither a maximum-floor request nor firmware protection
-is a safety guarantee. Numeric caps can restrict cooling.
+Provided **"AS IS"**, without warranty. See [LICENSE](LICENSE) §§11–12. This
+notice does not replace that license or exclude liability that cannot lawfully
+be excluded.
 
-### Per-fan RPM figures are unconfirmed
+## Power cycle before you chase software
 
-Every per-fan RPM range quoted in this document, including **fan0 1260-9000** and
-**fan1 1890-13500**, comes from reading upstream's reverse-engineered EC
-capability replies. These figures are **not confirmed** by NVIDIA or Lenovo
-documentation, are **not measured** by this software, and are **not verified**
-against any fan's actual rating. This project performs no tachometer readback of
-any kind: `status` reports the last acknowledged command, never a measured speed.
+On **3 of 4** tested machines (PGX and DGX Spark), fan overrides did not take
+effect until a **full power cycle**. Warm reboot, firmware-setup defaults,
+driver purge/reinstall, kernel change, Secure Boot change, and module reload
+did **not** clear it.
 
-Consequently the 9000 RPM value used as the automatic policy ceiling, and any
-claim that a request "stays inside a fan's rating", rest entirely on an
-unverified third-party observation from one machine. They may be wrong for your
-hardware, firmware revision, or SKU. A request the EC accepts is not evidence
-that a fan can safely sustain it, and a request within these figures is not
-evidence of safety either.
+Typical symptoms after a fresh `modprobe`:
 
-**Choosing any RPM value is your decision and your responsibility.** Determine
-suitable limits for your own hardware from the manufacturer's specifications and
-your own observations. Do not rely on the numbers in this document, or on its
-defaults, as a substitute for that.
+- First EC exchange fails with firmware service status `5`, or
+- Exchanges succeed (`fan_fault: 0`, byte-exact replies) but the fans stay on
+  the stock curve and ignore every override.
 
-To the extent permitted by applicable law, this software is provided **"AS IS",
-without warranty of any kind**, including warranties of merchantability or
-fitness for a particular purpose. Except as required by applicable law or agreed
-in writing, the authors, copyright holders, maintainers, and contributors are not
-liable for hardware damage, data loss, loss of use, or other damages arising from
-the use of, or inability to use, this software.
+**Do this once on a new or newly misbehaving machine**, using the vendor power-off
+procedure:
 
-This notice supplements, and does not replace or modify, the warranty and
-liability terms in sections 11 and 12 of [LICENSE](LICENSE). Nothing in this
-notice excludes liability that cannot lawfully be excluded.
+1. Shut down cleanly.
+2. Disconnect AC.
+3. Drain standby power (hold the power button ~10 s).
+4. Reconnect and boot.
+5. Load the module, run `gb10-fan auto`, then a floor request, and confirm the
+   fans actually change — not only that `status` shows an acknowledgement.
 
-## Requirements and validation
+The firmware-side cause is unidentified. This is an observed remedy, not a
+guaranteed or explained recovery. After any latched fault, save
+`journalctl -k -b` **before** touching the module. Reloading clears the
+in-memory latch and loses nothing useful; it is not a fix.
 
-- Native Ubuntu/Debian `arm64` for Debian packaging and target operation.
-- Matching kernel headers, ARM FF-A Direct Request 2 support, and a compatible
-  64-bit-mode firmware partition with the verified transport layout below.
-- Root for control commands, module management, and installation; `status` can
-  run without root when sysfs and temperature sources are readable.
-- Optional NVIDIA runtime `libnvidia-ml.so.1`, loaded dynamically for NVML
-  temperatures. No CUDA development headers or `nvidia-smi` subprocess is needed.
-- Secure Boot/module-signing policy must permit the locally built DKMS module.
+**Never reload the module to bypass a latched fault.**
 
-On **2026-09-05**, native ARM64 compilation, module loading, package assembly,
-and supervised EC exchanges passed on a PGX running `6.17.0-1032-nvidia`.
-Checks covered a 6000 RPM floor request, automatic reset, cap rejection, locking,
-signal cleanup with a 60-second poll, and missing-sensor maximum-floor behavior.
-Both NVML and thermal-zone readings worked. Isolated DKMS builds passed with
-DKMS 3.0.11 and 3.4.1 for NVIDIA kernels `6.11.0-1016` and `6.17.0-1032`.
-These checks are not tachometer or sustained-load cooling validation. Package
-installation and fault injection have not been exercised. Other SKUs/firmware
-remain unverified.
+## Quick start (clean machine)
 
-On the same host, the idle floor, a `--curve` override, and `max` targeting 9000
-were each acknowledged with `fan_fault: 0`, band transitions were observed under
-the governor, and SIGINT restored automatic control. Sustained-load cooling and
-the missing-sensor path at the reduced 9000 top band have not been re-measured.
-
-## Build
+Native ARM64 host, matching kernel headers, root for control/install.
+`status` can run unprivileged when sysfs and temperature sources are readable.
 
 ```sh
-# Run from the repository root on the target ARM64 host.
 sudo apt update
 sudo apt install build-essential dpkg-dev linux-headers-$(uname -r) dkms
 make
 make check
-make module
-# Alternatively select the matching kernel build tree explicitly:
-make module KDIR=/lib/modules/$(uname -r)/build
+make module          # or: make module KDIR=/lib/modules/$(uname -r)/build
 make deb
-```
-
-`make` builds `build/gb10-fan`; `make check` checks compilation and shell syntax
-without running a governor or loading a module. `make module` builds
-`kernel/nvfancontrol.ko`. `make deb` rebuilds userspace and packages the executable,
-DKMS source, systemd unit, README, and license; cross-packaging is unsupported.
-DKMS configuration and upgrades require matching headers for **every kernel tree
-under `/lib/modules`**, including retained older kernels. Install their headers
-as well as those for the running kernel; successful configuration builds for all
-of them. Missing headers abort before DKMS removal. Compilation failures stop
-configuration, but do not roll back previously removed builds.
-
-## Migrate and install
-
-The upstream package and this release use the same module name, `nvfancontrol`;
-the Debian package declares a conflict to prevent co-installation.
-Do not run old and new controllers together or assume installing a new module
-file replaces the currently loaded module. For a clean machine, skip migration
-steps 1-3. For an existing installation:
-
-1. Identify installed old services (`systemctl list-unit-files`), the upstream
-   package (`dpkg-query -W nvfancontrol`), and loaded module (`lsmod`). Stop and
-   disable each old unit **only if it is installed**:
-
-```sh
-sudo systemctl disable --now nvfancontrol.service
-sudo systemctl disable --now gb10-fanctl-governor.service
-```
-
-2. While the existing module is still loaded, restore automatic control using
-   its matching tool and confirm successful acknowledgement/status. For upstream,
-   use `sudo nvfancontrol auto` then `nvfancontrol status`; for this release, use
-   `sudo gb10-fan auto` then `gb10-fan status`. An older extended controller must
-   confirm **both cap and floor** are automatic. Stop any running new governor
-   first. Do not unload if restoration fails or transport health is uncertain.
-3. Only after confirming automatic control, unload the existing module with
-   `sudo modprobe -r nvfancontrol`. Remove the upstream package with
-   `sudo apt remove nvfancontrol` **only if installed**. Check `dkms status` and
-   remove any known manually installed upstream driver/service using its original
-   uninstall procedure. Do not delete unknown DKMS entries or unrelated modules.
-
-**Never reload a module to bypass a latched fault.** The steps above are healthy
-migration steps, not fault recovery. A reload loses the diagnostic latch without
-establishing what happened at the EC.
-
-Install the new package:
-
-```sh
 sudo apt install ./build/gb10-fan_0.2.0_arm64.deb
 ```
 
-Installation registers/builds the DKMS module and refreshes systemd metadata; it
-does **not** load the module or enable, start, or restart either unit. Inspect
-`dkms status` and `modinfo -n nvfancontrol` before deliberately activating it:
+The package registers the DKMS module and refreshes systemd. It does **not**
+load the module or enable/start either unit.
 
 ```sh
 sudo modprobe nvfancontrol
-gb10-fan status
+gb10-fan status                 # unknown / nonzero is normal before any write
 sudo gb10-fan auto
 gb10-fan status
+sudo systemctl start gb10-fan-floor.service
+sudo systemctl enable gb10-fan-floor.service   # only if you want it at boot
 ```
 
-Initial status normally reports `unknown` and exits nonzero: probing sends no
-commands or EC readback. Explicit `auto` establishes acknowledged automatic state.
-Stop on any write failure.
-For upgrades, stop the running unit and confirm automatic state before replacing
-a healthy loaded driver; package upgrades stop both units but do not restart them
-or replace a loaded module. Restart only after deliberate driver activation.
-Upgrades preserve your boot-enablement choice; purging removes both units'
-enablement links. No old shell configuration is overwritten or evaluated.
+Stop on any write failure. If acknowledgements look fine but the fans do not
+move, do the [power cycle](#power-cycle-before-you-chase-software) before
+debugging the CLI.
 
-## Commands
+Migrating from the upstream `nvfancontrol` package: see
+[Migrate](#migrate-from-upstream).
 
-```text
-gb10-fan [options] <command>
-status             Cached commands, transport health, and temperature (default)
-set <0..13500>     Request floor RPM; 0 disables only the floor
-max                Clear cap, then request a 9000 RPM floor
-auto               Disable both cap and floor, cap first
-cap <1..13500>     Experimental numeric cap; requires both opt-ins below
-cap off            Disable only the cap; no opt-in needed
-governor           Run in foreground until SIGINT/SIGTERM or failure
---poll <1..60>      Governor interval in seconds (default 5)
---hysteresis <0..10> Downward hysteresis in Celsius (default 3)
---curve <spec>      Floor curve `base,tempC:rpm,...`; overrides the default
---temp-file <path>  Absolute path; exclusive temperature source for status/governor
---allow-cap        Permit numeric cap command in this process
---help, -h, --version
-```
+## Choose one writer
 
-`--poll`, `--hysteresis`, and `--curve` apply only to `governor`; `--allow-cap`
-only to `cap`.
+Two mutually exclusive units. Installing the package enables neither.
+`Conflicts=` covers each other and the old upstream / governor units. Only one
+writer may own the controller.
 
-`set 0` is **not** `auto`: it leaves any cap in place, and does not stop the fans.
-Floors and caps are EC target-policy requests, not per-fan speed locks. `max`
-removes a potentially restrictive cap first but does not guarantee 9000 RPM or
-100% PWM. The two fans can have different physical limits.
+| Unit | What it does | Use when |
+| --- | --- | --- |
+| `gb10-fan-floor.service` | Oneshot: clear cap, set one floor, exit. `ExecStop` → `auto`. | Default. Lower idle temp; firmware still escalates above the floor. |
+| `gb10-fan.service` | Resident governor; curve tracks temperature. Cleanup is in-process (`auto` on SIGINT/SIGTERM). | You want RPM to rise with temperature. |
 
-`max` requests 9000 RPM, the lowest maximum among the fans' reported capability
-ranges (see [Transport and attribution](#transport-and-attribution)), so every
-fan stays inside its rating. It is **not** the highest value the EC accepts; use
-`set <rpm>` up to 13500 to deliberately request more, understanding that only
-fan1 can meet it and that EC behaviour for fan0 above 9000 is unobserved.
+Both use `Restart=no`. Stopping either unit restores automatic control first.
 
-The driver's sysfs `max` token is different from `gb10-fan max`: writing `max`
-to the `fan` attribute requests a **13500 RPM floor and leaves any cap unchanged**.
-The CLI clears the cap first and requests **9000 RPM**. Neither interface
-guarantees the requested speed or measures actual RPM; a retained cap may
-restrict cooling when using the sysfs token.
-
-`status` reads `fan`, `fan_cap`, and `fan_fault` from the uniquely matching driver
-device. These are **last acknowledged commands, not measured fan RPM or current
-EC readback**. It exits nonzero for unknown/error state, nonzero/unreadable fault,
-missing/incompatible controller, or no valid temperature. Invalid CLI arguments
-exit 2; operational failures exit 1. A zero status is not a cooling-health test.
-
-Control commands take `/run/gb10-fan/control.lock`; stop the governor before
-manual writes. This advisory lock coordinates **only this executable**. It cannot
-exclude direct sysfs writers, old tools, or other firmware mailbox clients.
-
-## Governor and sensors
-
-The governor clears any cap on entry, then requests a floor only when the target
-RPM actually changes. The default curve uses the hottest valid temperature:
-
-| Temperature on rise | Requested floor RPM |
-| --- | ---: |
-| Below 50 C | 2400 |
-| 50 to below 65 C | 3200 |
-| 65 to below 75 C | 5200 |
-| 75 to below 85 C | 8000 |
-| 85 to below 92 C | 8500 |
-| 92 C and above | 9000 |
-
-A floor is a minimum, not a cap: it never prevents the EC from spinning faster.
-The lowest band is a real request rather than a release, so a floor applies at
-all times while the governor runs, and the 2400 RPM idle floor is above both
-fans' reported minimums. Every default value is at or below 9000, the lowest
-maximum among the fans' reported ranges, so automatic policy keeps each fan
-inside its rating.
-Firmware behavior above the requested floor is not verified here, and per the
-disclaimer no floor is a safety guarantee.
-
-Upward changes occur at the threshold on the next poll. Downward changes require
-temperature strictly below the crossed threshold minus hysteresis (default 3 C).
-Multiple bands can be crossed in one sample.
-
-`--curve <base,tempC:rpm,...>` replaces the default. The first value is the RPM
-below the first threshold; each following `tempC:rpm` pair adds a band, using
-whole degrees Celsius:
-
-```sh
-gb10-fan governor --curve 2400,50:3200,65:5200,75:8000,85:8500,92:9000
-```
-
-One to eight pairs are accepted. Temperatures must strictly increase and fall in
-20..110 C; RPMs must not decrease and must be 1..13500. Adjacent bands may share
-an RPM, which costs no extra EC exchange. An invalid curve is reported and the
-process **exits 2 before any privilege check or controller access**, so a broken
-override fails at startup instead of running a wrong curve. Values above 9000 are
-accepted with a warning, since only fan1 can meet them. `--curve` cannot request
-"no floor" for its lowest band; use `set 0` or `auto` for that.
-
-Override the packaged service with a drop-in rather than editing the unit:
-
-```sh
-sudo systemctl edit gb10-fan
-# [Service]
-# ExecStart=
-# ExecStart=/usr/sbin/gb10-fan governor --poll 5 --hysteresis 3 --curve 2000,60:4000,75:7000,90:9000
-```
-
-By default, temperature is the maximum across available valid NVML GPU readings
-and `/sys/class/thermal/thermal_zone*/temp` readings. The NVML group is discarded
-if any enumerated GPU cannot be read; valid thermal zones remain usable. Unreadable
-or invalid sources are ignored, so a surviving sensor need not cover every hot
-component. If **all** temperature sources fail, the governor requests the curve's
-top band (9000 RPM by default) and waits for readings to recover, provided the
-transport remains usable.
-
-`--temp-file /absolute/path` replaces all automatic sensor discovery. It must
-contain an integer in **millidegrees Celsius**, from -40000 through 150000
-(for example, `65000` means 65 C). Use a root-trusted file and parent path with a
-reliable producer; the program does not enforce ownership or freshness. Never
-use an untrusted writable file as a thermal input. Missing/invalid data follows
-the same maximum-floor/recovery behavior; stale but valid numbers cannot be detected.
-
-## Services
-
-Two mutually exclusive units are installed. They `Conflicts=` each other and the
-two old services, because only one writer may own the controller. Installing the
-package does not enable or start either one.
-
-### `gb10-fan-floor.service` (default choice)
-
-A `Type=oneshot` static floor with `RemainAfterExit=yes`. It clears any cap,
-requests one RPM floor, and exits; `ExecStop` requests `auto`. Two EC exchanges
-per start/stop cycle and no polling process. Firmware performs all escalation
-above the floor.
-
-This is the recommended default: it matches the reason this project exists, which
-is lowering idle temperature rather than reshaping the whole thermal response.
+### Static floor (recommended)
 
 ```sh
 sudo systemctl start gb10-fan-floor.service
-sudo systemctl enable gb10-fan-floor.service    # only if intended
+sudo systemctl enable gb10-fan-floor.service
 ```
 
-Change the RPM with a drop-in, not by editing the unit:
+Change RPM with a drop-in, not by editing the unit:
 
 ```sh
 sudo systemctl edit gb10-fan-floor.service
@@ -331,95 +145,248 @@ ExecStart=
 ExecStart=/usr/sbin/gb10-fan set 3000
 ```
 
-Because the floor never changes, nothing reacts to temperature. Whether firmware
-escalation above your chosen floor is adequate for your workload is yours to
-verify under real load. Read the per-fan disclaimer above before picking a value.
+The floor never changes with temperature. Whether firmware escalation above it
+is enough for your workload is yours to verify under load.
 
-### `gb10-fan.service` (temperature-tracking governor)
-
-Runs the foreground governor, which clears any cap on entry and then tracks the
-curve. Choose this if you want RPM to rise with temperature instead of a single
-static value. It costs a resident process polling sensors, and an EC exchange on
-every band change.
+### Governor
 
 ```sh
 sudo systemctl start gb10-fan.service
-sudo systemctl enable gb10-fan.service          # only if intended
+sudo systemctl enable gb10-fan.service
 ```
 
-There is no shipped configuration file. Use a drop-in:
-
 ```ini
+# sudo systemctl edit gb10-fan.service
 [Service]
 ExecStart=
 ExecStart=/usr/sbin/gb10-fan governor --poll 5 --hysteresis 8
 ```
 
-SIGINT/SIGTERM cleanup belongs to the governor: it requests `auto` for both
-slots, so this unit needs no `ExecStop`.
-
-### Switching between them
+Switch:
 
 ```sh
 sudo systemctl disable --now gb10-fan.service
 sudo systemctl enable --now gb10-fan-floor.service
 ```
 
-Stopping either unit restores automatic control first, so the machine is never
-left holding a floor from a unit that is no longer running. Inspect both with
-`systemctl status` and `journalctl -u <unit> -b`. Both use `Restart=no`.
+## Commands
+
+```text
+gb10-fan [options] <command>
+status                 Cached commands, transport health, temperature (default)
+set <0..13500>         Request floor RPM; 0 disables only the floor
+max                    Clear cap, then request a 9000 RPM floor
+auto                   Disable cap first, then floor
+cap <1..13500>         Experimental numeric cap; needs both opt-ins below
+cap off                Disable only the cap
+governor               Foreground until SIGINT/SIGTERM or failure
+--poll <1..60>         Governor interval in seconds (default 5)
+--hysteresis <0..10>   Downward hysteresis in Celsius (default 3)
+--curve <spec>         Floor curve `base,tempC:rpm,...`
+--temp-file <path>     Absolute path; exclusive temperature source
+--allow-cap            Permit numeric cap in this process
+--help, -h, --version
+```
+
+`--poll`, `--hysteresis`, and `--curve` apply only to `governor`.
+`--allow-cap` applies only to `cap`.
+
+| Pitfall | Actual meaning |
+| --- | --- |
+| `set 0` | Not `auto`. Leaves any cap in place; does not stop the fans. |
+| `gb10-fan max` | Clears cap, then floor **9000** (lowest reported fan maximum). |
+| sysfs `fan` = `max` | Floor **13500**, cap **unchanged**. Different command. |
+| Floor / cap | EC target-policy requests, not per-fan speed locks. |
+| `status` | Last ack + `fan_fault`. Exit 0 is not a cooling-health test. |
+
+`max` at 9000 is **not** the highest value the EC accepts. `set` up to 13500 is
+allowed; only fan1 is reported able to meet it, and fan0 above 9000 is
+unobserved. Neither interface guarantees the requested speed.
+
+Control commands take `/run/gb10-fan/control.lock`. Stop the governor before
+manual writes. The lock coordinates **this executable only**. It cannot exclude
+direct sysfs writers, old tools, or other firmware mailbox clients.
+
+Invalid CLI arguments exit 2. Operational failures exit 1. `status` exits
+nonzero for unknown/error state, nonzero/unreadable fault, missing controller,
+or no valid temperature.
 
 ### Caps
 
-Numeric caps require **both** `sudo gb10-fan --allow-cap cap <rpm>` and module
-parameter `allow_caps=1`. Permission defaults off and is read-only after load.
-Only during a planned, healthy activation with the module not already loaded,
-use `sudo modprobe nvfancontrol allow_caps=1`. Adding this argument to an already
-loaded module does not change it. Do not reload to evade a fault, persist this
-opt-in casually, or enable a unit automatically; both units clear caps on start.
+Numeric caps need **both**:
+
+1. Module loaded with `allow_caps=1` (read-only after load; default off)
+2. `sudo gb10-fan --allow-cap cap <rpm>`
+
+Only when the module is **not** already loaded:
+
+```sh
+sudo modprobe nvfancontrol allow_caps=1
+```
+
+Do not persist this casually or enable a unit that applies a cap at boot. Both
+shipped units clear caps on start.
+
+## Governor and sensors
+
+On start the governor clears any cap, then writes a floor only when the target
+RPM changes. Default curve, hottest valid temperature:
+
+| Temperature on rise | Requested floor RPM |
+| ------------------- | ------------------: |
+| Below 50 °C         |                2400 |
+| 50 to below 65 °C   |                3200 |
+| 65 to below 75 °C   |                5200 |
+| 75 to below 85 °C   |                8000 |
+| 85 to below 92 °C   |                8500 |
+| 92 °C and above     |                9000 |
+
+A floor never prevents the EC from spinning faster. The lowest band is a real
+request, so a floor is present the whole time the governor runs. Defaults stay
+at or below 9000. Firmware behavior above the floor is not verified here.
+
+Upward changes apply at the threshold on the next poll. Downward changes need
+temperature strictly below `threshold − hysteresis` (default 3 °C). One sample
+may cross several bands.
+
+```sh
+gb10-fan governor --curve 2400,50:3200,65:5200,75:8000,85:8500,92:9000
+```
+
+- One to eight `tempC:rpm` pairs after the base RPM.
+- Temperatures strictly increasing, 20–110 °C; RPMs non-decreasing, 1–13500.
+- Adjacent bands may share an RPM (no extra EC write).
+- Invalid curve → exit 2 **before** privilege or controller access.
+- RPM above 9000 is accepted with a warning.
+- The lowest band cannot be “no floor”; use `set 0` or `auto` for that.
+
+Default temperature is the max of valid NVML GPU readings and
+`/sys/class/thermal/thermal_zone*/temp`. The whole NVML group is discarded if
+any enumerated GPU cannot be read; thermal zones can still be used. If **all**
+sources fail, the governor requests the curve top band (9000 by default) and
+waits for recovery, provided the transport still works.
+
+`--temp-file /absolute/path` replaces discovery. File must hold millidegrees
+Celsius, integer −40000..150000 (`65000` = 65 °C). Use a root-trusted path.
+Missing/invalid data follows the same maximum-floor path; stale-but-valid
+numbers cannot be detected.
+
+Optional NVML via `libnvidia-ml.so.1` (dlopen). No CUDA headers and no
+`nvidia-smi` subprocess.
+
+## Build notes
+
+`make` → `build/gb10-fan`. `make check` compiles and checks shell syntax; it
+does not run a governor or load a module. `make deb` rebuilds userspace and
+packages the executable, DKMS source, systemd unit, README, and license.
+Cross-packaging is unsupported.
+
+DKMS configuration builds for **every** kernel tree under `/lib/modules`.
+Install headers for retained older kernels too. Missing headers abort before
+DKMS removal. A compile failure stops configuration but does not roll back
+already-removed builds.
+
+Secure Boot / module-signing policy must allow the locally built DKMS module.
+Need ARM FF-A Direct Request 2 and a compatible 64-bit firmware partition
+(layout in [Transport](#transport-and-attribution)).
+
+### Tested
+
+Native ARM64 build, module load, packaging, and supervised EC exchanges on
+PGX and DGX Spark (NVIDIA kernels including `6.11.0-1016` and `6.17.0-1032`).
+Isolated DKMS builds with DKMS 3.0.11 and 3.4.1.
+
+Checked: floor request, automatic reset, cap rejection, locking, SIGINT
+cleanup, missing-sensor maximum-floor path, NVML and thermal-zone reads, idle
+floor, `--curve`, `max` @ 9000 with `fan_fault: 0`, governor band changes.
+
+**Not** checked: tachometer truth, sustained-load cooling at the 9000 top band,
+package-install fault injection, other SKUs/firmware. A passing ack is not a
+cooling validation.
+
+## Migrate from upstream
+
+Same module name (`nvfancontrol`). The Debian package conflicts so both cannot
+be installed. Do not run old and new controllers together. Installing a new
+`.ko` does not replace a loaded module.
+
+On a clean machine, skip this section.
+
+1. Find old units (`systemctl list-unit-files`), the upstream package
+   (`dpkg-query -W nvfancontrol`), and `lsmod`. Stop only units that exist:
+
+   ```sh
+   sudo systemctl disable --now nvfancontrol.service
+   sudo systemctl disable --now gb10-fanctl-governor.service
+   ```
+
+2. With the **old** module still loaded, restore automatic control using **its**
+   tool (`sudo nvfancontrol auto` or `sudo gb10-fan auto`) and confirm status.
+   An older extended controller must show **both** cap and floor automatic.
+   Stop any new governor first. **Do not unload** if restore fails or transport
+   health is uncertain.
+
+3. Only then: `sudo modprobe -r nvfancontrol`. Remove the upstream package
+   only if it is installed. Clean known leftover DKMS entries with that
+   project's uninstall steps. Do not delete unknown DKMS entries.
+
+These are healthy-migration steps, not fault recovery.
+
+Package upgrades stop both units, do not restart them, and do not replace a
+loaded module. Restart only after you deliberately load the new driver.
+Enablement links are preserved on upgrade and removed on purge. No old shell
+configuration is overwritten.
 
 ## Failures and retained state
 
-Transport/service errors, timeouts, reply mismatch, or failed shared-buffer
-restoration latch `fan_fault` and block further driver requests. The executable
-stops after write failure without a blind cleanup/reset/replay. Only a mailbox
-busy **before submission**, with no latched fault, is retried (up to three attempts).
-Inspect `journalctl -k -b`; stop conflicting writers and investigate the cause.
-Do not automatically restart, clear the mailbox, or unload/reload around a fault.
+Transport errors, timeouts, reply mismatch, or failed shared-buffer restore
+latch `fan_fault` and block further driver requests. The executable stops after
+a write failure. It does not blindly reset or replay.
 
-SIGKILL, crashes, stop timeouts, and module unload can leave EC overrides in effect.
-Module load/unbind issues no reset; new cached state starts unknown. Overrides are
-volatile EC state, but unloading is not a power cycle or a recovery guarantee.
-If cooling cannot be established, stop the workload and use the platform's
-supported shutdown/recovery procedure, not repeated experimental commands.
+Only a mailbox-busy condition **before submission**, with no latched fault, is
+retried (up to three times).
+
+`SERVICE FAILURE` kernel logs include firmware service status, FF-A duration,
+request bytes, and the first four response words. Upstream associates status
+`5` with a failed status read, request write, or doorbell write. A call
+≥ 40 ms is flagged as a **possible** eSPI completion timeout — classification
+only, not a tunable. That is distinct from `OUTPUT TIMEOUT` (5 s wait for the
+reply-ready flag after a zero service status). Stretching that wait cannot fix
+a status-`5` failure; the driver never reaches it.
+
+SIGKILL, crashes, stop timeouts, and module unload can leave EC overrides in
+effect. Load/unbind issues no reset; cached state starts unknown. Unload is
+not a power cycle. If you cannot establish cooling, stop the workload and use
+the platform's supported shutdown procedure.
 
 ## Transport and attribution
 
 Upstream reverse engineering identifies FF-A partition UUID
 `884a63a0-3285-4120-83aa-eec008a0a546` (observed as `arm-ffa-17`, ID `0x11`,
-properties `0x109`, 64-bit mode), Direct Request 2, eSPI OEM command **17**, and
-manifest `ns_shm0` at physical `0x933dd000`, size `0x1000`. Verify firmware/kernel
-compatibility rather than editing the UUID/address to force a match.
+properties `0x109`, 64-bit mode), Direct Request 2, eSPI OEM command **17**,
+and manifest `ns_shm0` at physical `0x933dd000`, size `0x1000`. Verify
+firmware/kernel compatibility. Do not edit the UUID or address to force a match.
 
-The 32-byte mailbox frame carries a five-byte `07 <inner> 00 <target LE16>`
-request at offset `0x10`; inner `3` writes cap slot `0x119190`, inner `5` floor
-slot `0x119192`, and `0xffff` disables a slot. Upstream capability replies report
-fan0 1260-9000 RPM and fan1 1890-13500 RPM; these are not this program's telemetry.
+The 32-byte mailbox frame carries a five-byte
+`07 <inner> 00 <target LE16>` request at offset `0x10`. Inner `3` writes cap
+slot `0x119190`, inner `5` writes floor slot `0x119192`, `0xffff` disables a
+slot.
+
 The driver requires an idle mailbox, rejects unreserved Linux RAM mappings,
-validates service status and the exact reply, polls up to 5 s at 10 ms intervals,
-and restores/verifies the initial 32 bytes only after a successful exchange.
-These checks do not establish exclusive ownership against unrelated clients.
+validates service status and the exact reply, polls up to 5 s at 10 ms, and
+restores/verifies the initial 32 bytes only after a successful exchange. That
+is not exclusive ownership against other mailbox clients.
 
-Derived from [Z841973620/dgx-spark-fan-override](https://github.com/Z841973620/dgx-spark-fan-override),
-by **841973620**, whose work supplies the original FF-A/eSPI driver and EC
-reverse engineering. **Modified 2026-09-05:** this fork adds dual-slot controls,
-transport fault handling, the single C CLI/governor, and packaging. This README
-replaces earlier operational/safety guidance. Licensed **GPL-2.0-only**, without
-warranty. [LICENSE](LICENSE) reproduces the [upstream license](https://raw.githubusercontent.com/Z841973620/dgx-spark-fan-override/main/LICENSE)
-verbatim; its generic application example does not change this project's license.
+The driver assumes RPM mode. It does not query the EC mode or read override
+slots back. Upstream
+[protocol notes for EC firmware 0x3000508](https://github.com/Z841973620/dgx-spark-fan-override/blob/7ffcb3e28327d3e0f4d62210845d3357f0fbe256/README_EN.md)
+also describe a percentage mode, mode/range query (inner `1`), slot readback
+(`2`, `4`), and telemetry (`7`). Those are not implemented here.
 
-**Provenance:** the upstream base revision is **unverified**. The original
-installer cloned upstream without pinning a revision, and the local import did
-not record an upstream commit SHA, so the exact source revision this driver was
-derived from cannot be identified. There is no submodule or pinned checkout;
-`kernel/nvfancontrol.c` is a vendored, modified copy.
+Derived from [Z841973620/dgx-spark-fan-override](https://github.com/Z841973620/dgx-spark-fan-override)
+by **841973620**. **Modified 2026-09-05:** dual-slot controls, transport fault
+handling, single C CLI/governor, packaging. Licensed **GPL-2.0-only**, without
+warranty. [LICENSE](LICENSE) reproduces the upstream license verbatim.
+
+The upstream base revision is **unverified**. The original import did not pin a
+commit SHA. `kernel/nvfancontrol.c` is a vendored, modified copy.
